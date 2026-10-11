@@ -8,9 +8,9 @@ class Node:
 
 
 class Graph:
-    def __init__(self, size):
-        self.nodes = [Node() for _ in range(size)]
-        self.size = size
+    def __init__(self):
+        self.nodes = list()
+        self.size = 0
 
         # State of the current Dijkstra run
         self.distances = []
@@ -25,11 +25,10 @@ class Graph:
     def add_edge(self, u, v, weight):
         if 0 <= u < self.size and 0 <= v < self.size:
             self.nodes[u].add_connection(v, weight)
-            self.nodes[v].add_connection(u, weight)  # For undirected graph
 
-    def add_vertex_data(self, vertex, data):
-        if 0 <= vertex < self.size:
-            self.nodes[vertex].label = data
+    def add_vertex_data(self, data):
+        self.nodes.append(Node(data))
+        self.size += 1
 
     def get_path(self, predecessors, start_vertex, end_vertex):
         path = []
@@ -41,6 +40,17 @@ class Graph:
                 path.insert(0, start_vertex)
                 break
         return '->'.join(path)  # Join the vertices with '->'
+
+    def _get_path(self, predecessors, start_vertex, end_vertex):
+        path = []
+        current = self.vertex_data.index(end_vertex)
+        while current is not None:
+            path.insert(0, self.vertex_data[current])
+            current = predecessors[current]
+            if current == self.vertex_data.index(start_vertex):
+                path.insert(0, start_vertex)
+                break
+        return path  # Join the vertices with '->'
 
     def select_min_node(self):
         """Returns the unvisited node with the lowest weight, or None if no node is reachable."""
@@ -55,6 +65,7 @@ class Graph:
     def update_current(self, node):
         """Makes the given node (the one with the lowest weight) the current node."""
         self.current = node
+
 
     def mark_visited(self, node):
         """Changes a node from unvisited to visited."""
@@ -105,15 +116,17 @@ class Graph:
         return self.distances[end_vertex], self.get_path(self.predecessors, start_vertex_data, end_vertex_data)
 
 # Example usage
-g = Graph(7)
+g = Graph()
 
-g.add_vertex_data(0, 'A')
-g.add_vertex_data(1, 'B')
-g.add_vertex_data(2, 'C')
-g.add_vertex_data(3, 'D')
-g.add_vertex_data(4, 'E')
-g.add_vertex_data(5, 'F')
-g.add_vertex_data(6, 'G')
+g.add_vertex_data( 'A')
+g.add_vertex_data( 'B')
+g.add_vertex_data( 'C')
+g.add_vertex_data( 'D')
+g.add_vertex_data( 'E')
+g.add_vertex_data( 'F')
+g.add_vertex_data( 'G')
+g.add_vertex_data( "O")
+g.add_vertex_data("P")
 
 g.add_edge(3, 0, 4)  # D - A, weight 4
 g.add_edge(3, 4, 2)  # D - E, weight 2
@@ -125,6 +138,7 @@ g.add_edge(2, 5, 5)  # C - F, weight 5
 g.add_edge(2, 1, 2)  # C - B, weight 2
 g.add_edge(1, 5, 2)  # B - F, weight 2
 g.add_edge(6, 5, 5)  # G - F, weight 5
+g.add_edge(7,8,1)
 
-distance, path = g.dijkstra('D', 'F')
+distance, path = g.dijkstra('P', 'O')
 print(f"Path: {path}, Distance: {distance}")
