@@ -1,10 +1,7 @@
 import math
 import sys
-
 import pygame
 
-# Tu código original (Node + Graph) guardado como graph.py.
-# Recuerda envolver el "Example usage" con:  if __name__ == "__main__":
 from Dijkstra import Graph
 
 pygame.init()

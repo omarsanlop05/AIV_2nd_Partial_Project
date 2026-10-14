@@ -41,17 +41,6 @@ class Graph:
                 break
         return '->'.join(path)  # Join the vertices with '->'
 
-    def _get_path(self, predecessors, start_vertex, end_vertex):
-        path = []
-        current = self.vertex_data.index(end_vertex)
-        while current is not None:
-            path.insert(0, self.vertex_data[current])
-            current = predecessors[current]
-            if current == self.vertex_data.index(start_vertex):
-                path.insert(0, start_vertex)
-                break
-        return path  # Join the vertices with '->'
-
     def select_min_node(self):
         """Returns the unvisited node with the lowest weight, or None if no node is reachable."""
         min_distance = float('inf')
@@ -126,7 +115,7 @@ g.add_vertex_data( 'E')
 g.add_vertex_data( 'F')
 g.add_vertex_data( 'G')
 g.add_vertex_data( "O")
-g.add_vertex_data("P")
+g.add_vertex_data( "P")
 
 g.add_edge(3, 0, 4)  # D - A, weight 4
 g.add_edge(3, 4, 2)  # D - E, weight 2
@@ -140,5 +129,5 @@ g.add_edge(1, 5, 2)  # B - F, weight 2
 g.add_edge(6, 5, 5)  # G - F, weight 5
 g.add_edge(7,8,1)
 
-distance, path = g.dijkstra('P', 'O')
+distance, path = g.dijkstra('A', 'F')
 print(f"Path: {path}, Distance: {distance}")
