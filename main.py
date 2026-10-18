@@ -1,7 +1,10 @@
 import math
 import sys
+
 import pygame
 
+# Tu código original (Node + Graph) guardado como graph.py.
+# Recuerda envolver el "Example usage" con:  if __name__ == "__main__":
 from Dijkstra import Graph
 
 pygame.init()
@@ -18,7 +21,10 @@ NODE_R = 24          # radio visual
 COLLIDER_R = 32      # radio del collider (un poco mayor para que no queden pegados)
 MAX_LABEL = 12
 LABEL_DELAY_MS = 1000
-STEP_MS = 700        # duración de la animación por flecha del camino
+STEP_MS = 700        # animación del camino encontrado (por flecha)
+SELECT_MS = 160      # exploración: el algoritmo elige el nodo de menor distancia
+RELAX_MS = 200       # exploración: el algoritmo prueba una arista
+PAUSE_MS = 400       # pausa entre la exploración y el camino final
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -30,6 +36,10 @@ BLUE = (50, 110, 230)
 RED = (205, 45, 45)
 GREEN = (30, 140, 70)
 YELLOW = (255, 196, 0)
+TEAL = (0, 150, 165)          # exploración: aristas / pulso
+TEAL_FILL = (100, 208, 218)   # exploración: nodo que se está procesando
+TEAL_LIGHT = (208, 240, 242)  # exploración: nodos ya visitados
+REJECT = (150, 150, 160)      # exploración: arista probada que no mejora
 
 FONT = pygame.font.SysFont("arial", 18)
 FONT_B = pygame.font.SysFont("arial", 18, bold=True)
@@ -38,11 +48,28 @@ FONT_S = pygame.font.SysFont("arial", 15)
 
 # ───────────────────────── Utilidades ─────────────────────────
 class GraphEx(Graph):
-    """Graph + la función que faltaba para actualizar el label de un nodo."""
+    """Graph + update_vertex_data + registro de los pasos de Dijkstra (para animarlos)."""
+
+    def __init__(self):
+        super().__init__()
+        self.steps = []   # ("select", nodo, distancia) | ("relax", u, v, mejoró, distancia_v)
 
     def update_vertex_data(self, index, data):
         if 0 <= index < self.size:
             self.nodes[index].label = data
+
+    def dijkstra(self, start_vertex_data, end_vertex_data):
+        self.steps = []
+        return super().dijkstra(start_vertex_data, end_vertex_data)
+
+    def update_current(self, node):
+        super().update_current(node)
+        self.steps.append(("select", node, self.distances[node]))
+
+    def calculate_weight(self, neighbor):
+        improved = super().calculate_weight(neighbor)
+        self.steps.append(("relax", self.current, neighbor, improved, self.distances[neighbor]))
+        return improved
 
 
 def draw_text(surf, text, font, color, pos, anchor="topleft"):
@@ -81,6 +108,19 @@ def parse_weight(text):
     if v < 0 or math.isnan(v) or math.isinf(v):
         return None
     return int(v) if v.is_integer() else v
+
+
+def dashed_line(surf, color, a, b, width, dash=9, gap=6):
+    v = b - a
+    length = v.length()
+    if length == 0:
+        return
+    d = v / length
+    pos = 0
+    while pos < length:
+        e = min(pos + dash, length)
+        pygame.draw.line(surf, color, a + d * pos, a + d * e, width)
+        pos += dash + gap
 
 
 # ───────────────────────── Collider ─────────────────────────
@@ -328,11 +368,14 @@ class Canvas:
             return "Demasiado cerca de otro nodo."
         return None
 
-    def draw_node(self, surf, center, label, selected, yellow):
+    def draw_node(self, surf, center, label, selected, fill=None, ring=None, sub=None):
         c = (int(center.x), int(center.y))
-        if yellow:
-            pygame.draw.circle(surf, YELLOW, c, NODE_R)
+        if fill:
+            pygame.draw.circle(surf, fill, c, NODE_R)
         pygame.draw.circle(surf, BLACK, c, NODE_R, 3)
+        if ring:  # pulso de la exploración
+            pulse = 6 + int(3 * math.sin(pygame.time.get_ticks() / 70))
+            pygame.draw.circle(surf, ring, c, NODE_R + pulse, 3)
         if selected:
             pygame.draw.circle(surf, BLUE, c, NODE_R + 6, 2)
         img = FONT_B.render(label, True, BLACK)
@@ -342,9 +385,14 @@ class Canvas:
             pygame.draw.rect(surf, WHITE, bg, border_radius=6)
             pygame.draw.rect(surf, BLACK, bg, 1, border_radius=6)
         surf.blit(img, r)
+        if sub is not None:       # distancia tentativa durante la exploración
+            draw_text(surf, sub, FONT_S, TEAL, (c[0], c[1] + NODE_R + 12), "center")
 
-    def draw_arrow(self, surf, c1, c2, bidir, progress):
-        """Dibuja la flecha c1→c2. `progress` (0-1) es cuánto se ha pintado de amarillo.
+    def draw_arrow(self, surf, c1, c2, bidir, progress, explore=None):
+        """Dibuja la flecha c1→c2.
+        `progress` (0-1): cuánto se ha pintado de amarillo (camino final).
+        `explore` = (color, progreso, modo): capa de la exploración;
+                    modo "dash" = arista que se está probando, "solid" = árbol encontrado.
         Devuelve la posición donde va el label del peso."""
         d = c2 - c1
         d = d / d.length()
@@ -357,6 +405,16 @@ class Canvas:
         head = [tip, base + n * 7, base - n * 7]
         pygame.draw.line(surf, BLACK, start, base, 2)
         pygame.draw.polygon(surf, BLACK, head)
+        if explore:
+            color, prog, mode = explore
+            if mode == "dash":
+                p = start + (base - start) * prog
+                dashed_line(surf, color, start, p, 4)
+                pygame.draw.circle(surf, color, (int(p.x), int(p.y)), 7)
+                pygame.draw.circle(surf, WHITE, (int(p.x), int(p.y)), 3)
+            else:
+                pygame.draw.line(surf, color, start, base, 4)
+                pygame.draw.polygon(surf, color, head)
         if progress > 0:
             p = start + (base - start) * min(progress, 1)
             pygame.draw.line(surf, BLACK, start, p, 8)
@@ -403,6 +461,9 @@ class App:
 
         # Animación del camino
         self.path_edges, self.edge_index, self.path_nodes, self.anim_t0 = [], {}, None, 0
+        # Animación de exploración (previa al camino)
+        self.events, self.explore_t0, self.explore_total = [], 0, 0
+        self.result_at, self.pending_msg = 0, None
 
         self.msg, self.msg_kind, self.msg_until = "", "info", 0
 
@@ -419,6 +480,7 @@ class App:
     def invalidate_path(self):
         """Cualquier cambio en el grafo invalida el camino mostrado."""
         self.path_edges, self.edge_index, self.path_nodes = [], {}, None
+        self.events, self.explore_total, self.pending_msg, self.result_at = [], 0, None, 0
         self.result_text = ""
 
     def generic_label(self, exclude=None):
@@ -529,21 +591,56 @@ class App:
             self.set_message(self.result_text, "error")
             return
         labels = self.graph.vertex_data
-        _dist, path = self.graph.dijkstra(labels[s], labels[e])
+        dist, path = self.graph.dijkstra(labels[s], labels[e])
+        steps = list(self.graph.steps)
         self.invalidate_path()
+        now = pygame.time.get_ticks()
+        self.events = steps
+        self.explore_t0 = now
+        self.explore_total = sum(SELECT_MS if ev[0] == "select" else RELAX_MS for ev in steps)
+        end_explore = now + self.explore_total
         if path is None:
             self.result_text = f"No hay camino de '{labels[s]}' a '{labels[e]}'."
             self.result_kind = "error"
-            self.set_message(self.result_text, "error", 6000)
+            self.result_at = end_explore
+            self.pending_msg = (self.result_text, "error")   # se muestra al terminar la exploración
             return
         names = path if isinstance(path, list) else path.split("->")
         idxs = [labels.index(n) for n in names]
         self.path_edges = list(zip(idxs, idxs[1:]))
         self.edge_index = {edge: k for k, edge in enumerate(self.path_edges)}
         self.path_nodes = (idxs[0], idxs[-1])
-        self.anim_t0 = pygame.time.get_ticks()
-        self.result_text = f"Camino: {' → '.join(names)}  |  Distancia: {fmt_num(_dist)}"
+        self.anim_t0 = end_explore + PAUSE_MS                # el camino arranca tras la exploración
+        self.result_at = self.anim_t0 + len(self.path_edges) * STEP_MS
+        self.result_text = f"Camino: {' → '.join(names)}  |  Distancia: {fmt_num(dist)}"
         self.result_kind = "ok"
+
+    def explore_state(self, now):
+        """Reconstruye, para el instante `now`, qué ha hecho el algoritmo hasta ese momento."""
+        el = now - self.explore_t0
+        visited, pred, dist, active, current = set(), {}, {}, None, None
+        t = 0
+        for ev in self.events:
+            dur = SELECT_MS if ev[0] == "select" else RELAX_MS
+            if el < t:
+                break
+            if ev[0] == "select":
+                if current is not None:
+                    visited.add(current)
+                current = ev[1]
+                dist[current] = ev[2]
+            else:
+                _, u, v, improved, d = ev
+                if el >= t + dur:
+                    if improved:
+                        pred[v], dist[v] = u, d
+                else:
+                    active = (u, v, improved, (el - t) / dur)
+            t += dur
+        if el >= self.explore_total and current is not None:
+            visited.add(current)
+            current = None
+        return {"visited": visited, "pred": pred, "dist": dist, "active": active, "current": current}
 
     # ───────── eventos ─────────
     def on_click(self, e):
@@ -585,6 +682,9 @@ class App:
     def update(self):
         if self.label_pending and pygame.time.get_ticks() - self.label_t >= LABEL_DELAY_MS:
             self.commit_label()
+        if self.pending_msg and pygame.time.get_ticks() >= self.result_at:
+            self.set_message(self.pending_msg[0], self.pending_msg[1], 6000)
+            self.pending_msg = None
 
     # ───────── dibujo ─────────
     def draw_canvas(self, now):
@@ -592,6 +692,7 @@ class App:
         scr.fill(WHITE, CANVAS_RECT)
         scr.set_clip(CANVAS_RECT)
         cols = self.canvas.colliders
+        ex = self.explore_state(now) if self.events else None
         weights = []
         for u, node in enumerate(self.graph.nodes):
             for v, w in node.connections.items():
@@ -600,15 +701,35 @@ class App:
                 if (u, v) in self.edge_index:
                     progress = (now - self.anim_t0 - self.edge_index[(u, v)] * STEP_MS) / STEP_MS
                     progress = max(0, min(1, progress))
-                pos = self.canvas.draw_arrow(scr, cols[u].center, cols[v].center, bidir, progress)
+                explore = None
+                if ex:
+                    act = ex["active"]
+                    if act and act[:2] == (u, v):
+                        explore = (TEAL if act[2] else REJECT, act[3], "dash")
+                    elif ex["pred"].get(v) == u:
+                        explore = (TEAL, 1, "solid")
+                pos = self.canvas.draw_arrow(scr, cols[u].center, cols[v].center, bidir, progress, explore)
                 weights.append((pos, w))
         for pos, w in weights:
             self.canvas.draw_weight(scr, pos, w)
 
-        done = self.path_nodes and now - self.anim_t0 >= len(self.path_edges) * STEP_MS
+        started = bool(self.path_nodes) and now >= self.anim_t0
+        done = started and now - self.anim_t0 >= len(self.path_edges) * STEP_MS
         for i, node in enumerate(self.graph.nodes):
-            yellow = bool(self.path_nodes) and (i == self.path_nodes[0] or (i == self.path_nodes[1] and done))
-            self.canvas.draw_node(scr, cols[i].center, node.label, i == self.selected, yellow)
+            fill = ring = sub = None
+            if ex:
+                if i == ex["current"]:
+                    fill, ring = TEAL_FILL, TEAL
+                elif i in ex["visited"]:
+                    fill = TEAL_LIGHT
+                if i in ex["dist"]:
+                    sub = fmt_num(ex["dist"][i])
+            if started and (i == self.path_nodes[0] or (i == self.path_nodes[1] and done)):
+                fill = YELLOW
+            self.canvas.draw_node(scr, cols[i].center, node.label, i == self.selected, fill, ring, sub)
+        if ex:
+            draw_text(scr, "Cian: exploración del algoritmo   |   Amarillo: camino más corto",
+                      FONT_S, GRAY, (12, 10))
         scr.set_clip(None)
 
         pygame.draw.rect(scr, PANEL_BG, STATUS_RECT)
@@ -669,8 +790,11 @@ class App:
         self.dd_end.draw_box(scr)
         pygame.draw.rect(scr, BLUE, self.run_rect, border_radius=8)
         draw_text(scr, "Ejecutar", FONT_B, WHITE, self.run_rect.center, "center")
-        color = RED if self.result_kind == "error" else GREEN
-        for i, line in enumerate(wrap_text(self.result_text, FONT_S, PW - 32)[:2]):
+        if pygame.time.get_ticks() < self.result_at:
+            text, color = "Explorando el grafo…", GRAY
+        else:
+            text, color = self.result_text, (RED if self.result_kind == "error" else GREEN)
+        for i, line in enumerate(wrap_text(text, FONT_S, PW - 32)[:2]):
             draw_text(scr, line, FONT_S, color, (PANEL_X + 16, 672 + i * 18))
 
     def run(self):
